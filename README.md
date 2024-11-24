@@ -1,1 +1,1 @@
-# DASC6510-Time-Series
+# DASC 6510 Time Series Term Project
