@@ -56,7 +56,7 @@ Forecasting mortality rates is crucial for understanding demographic trends and 
    Run `cross_validation.R` to validate models using the rolling-origin method.
 
 4. **Visualization and Results:**  
-   The scripts generate visualizations (stored in `Results/plots/`) and performance metrics (stored in `Results/model_performance.csv`).
+   The scripts generate visualizations (stored in `Results/plots/`) and performance metrics (stored in `Results/`).
 
 ## Dependencies
 
