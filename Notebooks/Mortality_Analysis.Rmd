@@ -1,0 +1,331 @@
+---
+title: "DASC Time Series Forecast Final Project Notebook"
+author: "Max Li"
+date: "2024-11-21"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(magrittr)
+library(fable)
+library(tsibble)
+library(ggplot2)
+library(openxlsx)
+library(fpp3)
+library(patchwork)
+```
+
+# Data Preprocessing
+
+## Load the dataset
+
+```{r}
+data <- read.csv("aus_mortality.csv")
+data <- data %>%
+  mutate(Week = yearweek(Week)) %>% 
+  as_tsibble(index = Week, key = c(Sex, Age))
+
+head(data)
+```
+
+## Split the data into training and testing sets
+
+```{r}
+train <- data %>% filter(Week < yearweek("2021 W30"))
+test <- data %>% filter(Week >= yearweek("2021 W30"))
+
+glimpse(train)
+glimpse(test)
+```
+
+## Visualization
+
+```{r}
+plot_data <- ggplot(train, aes(x = Week, y = Mortality, color=interaction(Sex, Age))) +
+              geom_line() +
+              facet_wrap(~Sex + Age, scales = "free_y") +
+              theme_minimal() +
+              labs(title = "Weekly Mortality Rates by Demographic Group",
+                    x = "Week",
+                    y = "Mortality Rate")
+
+plot_data +
+  theme(
+    axis.text.x = element_blank(),  # Remove x-axis labels
+    axis.ticks.x = element_blank(),  # Remove x-axis ticks
+    axis.text.y = element_blank(),  # Remove y-axis labels
+    axis.ticks.y = element_blank()   # Remove y-axis ticks
+  )
+```
+
+# Benchmark Methods
+
+```{r}
+# Mean
+fit_mean <- train %>%
+  model(Mean = MEAN(Mortality))
+
+forecast_mean <- fit_mean %>%
+  forecast(new_data = test)
+
+plot_mean <- test %>%
+  autoplot(Mortality, color = "grey") +
+  autolayer(forecast_mean, level = NULL) +
+  labs(
+    title = "Mean Method Forecasts by Group",
+    x = "Week",
+    y = "Mortality"
+  ) +
+  theme_minimal() +
+  facet_wrap(~Sex + Age, scales = "free_y")
+
+plot_mean +
+  theme(
+    axis.text.x = element_blank(),  # Remove x-axis labels
+    axis.ticks.x = element_blank(),  # Remove x-axis ticks
+    axis.text.y = element_blank(),  # Remove y-axis labels
+    axis.ticks.y = element_blank()   # Remove y-axis ticks
+  )
+
+# Snaive
+fit_naive <- train %>%
+  model(Snaive = SNAIVE(Mortality))
+
+forecast_naive <- fit_naive %>%
+  forecast(new_data = test)
+
+plot_naive <- test %>%
+  autoplot(Mortality, color = "grey") +
+  autolayer(forecast_naive, level = NULL) +
+  labs(
+    title = "Naive Method Forecasts by Group",
+    x = "Week",
+    y = "Mortality"
+  ) +
+  theme_minimal() +
+  facet_wrap(~Sex + Age, scales = "free_y")
+
+plot_naive +
+  theme(
+    axis.text.x = element_blank(),  # Remove x-axis labels
+    axis.ticks.x = element_blank(),  # Remove x-axis ticks
+    axis.text.y = element_blank(),  # Remove y-axis labels
+    axis.ticks.y = element_blank()   # Remove y-axis ticks
+  )
+
+# Drift
+fit_drift <- train %>%
+  model(Drift = RW(Mortality ~ drift()))
+
+forecast_drift <- fit_drift %>%
+  forecast(new_data = test)
+
+plot_drift <- test %>%
+  autoplot(Mortality, color = "grey") +
+  autolayer(forecast_drift, level = NULL) +
+  labs(
+    title = "Drift Method Forecasts by Group",
+    x = "Week",
+    y = "Mortality"
+  ) +
+  theme_minimal() +
+  facet_wrap(~Sex + Age, scales = "free_y")
+
+plot_drift +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+```
+
+# Time Series Regression Model
+
+```{r}
+tslm_model <- train %>%
+  model(TSLM_1 = TSLM(Mortality ~ trend() + season()))
+
+forecast_tslm <- tslm_model %>%
+  forecast(new_data = test)
+
+plot_tslm <- test %>%
+  autoplot(Mortality, color = "grey") +
+  autolayer(forecast_tslm, level = NULL, aes(color = interaction(Sex, Age))) +
+  labs(
+    title = "TSLM Method Forecasts by Group",
+    x = "Week",
+    y = "Mortality"
+  ) +
+  theme_minimal() +
+  facet_wrap(~Sex + Age, scales = "free_y")
+
+plot_tslm +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+```
+
+## Ljung-Box Test
+
+```{r}
+augment(tslm_model) %>%
+  features(.innov, ljung_box, lag = 104)
+```
+
+# Auto ARIMA Model
+
+```{r}
+auto_arima <- train %>%
+  model(ARIMA = ARIMA(Mortality))
+
+forecast_arima <- auto_arima %>%
+  forecast(new_data = test)
+
+plot_arima <- test %>%
+  autoplot(Mortality, color = "grey") +
+  autolayer(forecast_arima, level = NULL, aes(color = interaction(Sex, Age))) +
+  labs(
+    title = "ARIMA Model Forecasts Faceted by Groups",
+    x = "Week",
+    y = "Mortality"
+  ) +
+  theme_minimal() +
+  facet_wrap(~Sex + Age, scales = "free_y")
+
+plot_arima +
+  theme(
+    axis.text.x = element_blank(),  # Remove x-axis labels
+    axis.ticks.x = element_blank(),  # Remove x-axis ticks
+    axis.text.y = element_blank(),  # Remove y-axis labels
+    axis.ticks.y = element_blank()   # Remove y-axis ticks
+  )
+```
+
+## Ljung-Box Test
+
+```{r}
+augment(auto_arima) %>%
+  features(.innov, ljung_box, lag = 104)
+```
+
+# Cross Validation
+
+## CV training set split
+```{r}
+cv_splits <- train %>%
+  stretch_tsibble(.init = 104, .step = 52) %>%
+  select(Week, Sex, Age, Deaths, Mortality)
+```
+## CV process
+```{r}
+cv_results <- cv_splits %>%
+  group_by(Sex, Age) %>%
+  model(
+    MEAN = MEAN(Mortality),
+    SNAIVE = SNAIVE(Mortality),
+    DRIFT = RW(Mortality ~ drift()),
+    TSLM = TSLM(Mortality ~ trend() + season()),
+    ARIMA = ARIMA(Mortality),
+  ) %>%
+  forecast(h = "1 year") %>%
+  accuracy(train)
+```
+
+## Save CV results
+
+```{r}
+cv_summary <- cv_results %>%
+  group_by(.model) %>%
+  summarise(AVG_MAE = mean(MAE), AVG_RMSE = mean(RMSE), AVG_MAPE = mean(MAPE))
+
+write_csv(cv_summary, "cv_summary.csv")
+```
+
+# Accuracy Results
+
+## Extract accuracy results
+```{r}
+accuracy_mean <- forecast_mean %>% accuracy(test)
+accuracy_naive <- forecast_naive %>% accuracy(test)
+accuracy_drift <- forecast_drift %>% accuracy(test)
+accuracy_tslm <- forecast_tslm %>% accuracy(test)
+accuracy_arima <- forecast_arima %>% accuracy(test)
+```
+
+## Merge result by rows
+```{r}
+model_comparison <- bind_rows(
+  accuracy_mean %>% mutate(Model = "Mean"),
+  accuracy_naive %>% mutate(Model = "Naive"),
+  accuracy_drift %>% mutate(Model = "Drift"),
+  accuracy_tslm %>% mutate(Model = "TSLM"),
+  accuracy_arima %>% mutate(Model = "ARIMA"),
+)
+```
+
+## Save results
+```{r}
+accuracy_summary <- model_comparison %>%
+  group_by(.model) %>%
+  summarise(AVG_MAE = mean(MAE), AVG_RMSE = mean(RMSE), AVG_MAPE = mean(MAPE))
+
+write_csv(accuracy_summary, "accuracy_summary.csv")
+```
+
+## Result Visualization
+
+```{r}
+accuracy <- read.csv("accuracy_summary.csv")
+
+# Plot for MAE
+plot_mae <- ggplot(accuracy, aes(x = Model, y = Average.MAE, fill = Model)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Average MAE",
+    x = "Model",
+    y = " "
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+# Plot for RMSE
+plot_rmse <- ggplot(accuracy, aes(x = Model, y = Average.RMSE, fill = Model)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Average RMSE",
+    x = "Model",
+    y = " "
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+# Plot for MAPE
+plot_mape <- ggplot(accuracy, aes(x = Model, y = Average.MAPE, fill = Model)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Average MAPE",
+    x = "Model",
+    y = " "
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+combined_plot <- plot_mae + plot_rmse + plot_mape + plot_layout(nrow = 1)
+
+combined_plot
+```
